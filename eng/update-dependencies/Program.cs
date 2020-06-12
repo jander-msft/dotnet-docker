@@ -20,6 +20,7 @@ namespace Dotnet.Docker
     public static class Program
     {
         private const string AspNetCoreBuildInfoName = "aspnet";
+        private const string MonitorBuildInfoName = "monitor";
         private const string RuntimeBuildInfoName = "core-setup";
         private const string SdkBuildInfoName = "cli";
 
@@ -88,6 +89,10 @@ namespace Dotnet.Docker
             if (Options.AspnetVersion != null)
             {
                 buildInfo.Add(CreateDependencyBuildInfo(AspNetCoreBuildInfoName, Options.AspnetVersion));
+            }
+            if (Options.MonitorVersion != null)
+            {
+                buildInfo.Add(CreateDependencyBuildInfo(MonitorBuildInfoName, Options.MonitorVersion));
             }
             if (Options.RuntimeVersion != null)
             {
@@ -306,6 +311,7 @@ namespace Dotnet.Docker
             List<IDependencyUpdater> manifestBasedUpdaters = new List<IDependencyUpdater>();
             CreateManifestUpdater(manifestBasedUpdaters, "Sdk", buildInfos, SdkBuildInfoName);
             CreateManifestUpdater(manifestBasedUpdaters, "Runtime", buildInfos, RuntimeBuildInfoName);
+            CreateManifestUpdater(manifestBasedUpdaters, "Monitor", buildInfos, MonitorBuildInfoName);
             manifestBasedUpdaters.Add(new ReadMeUpdater(RepoRoot));
 
             return CreateDockerfileVariableUpdaters(dockerfiles, buildInfos, VariableHelper.DotnetSdkVersionName, SdkBuildInfoName)
