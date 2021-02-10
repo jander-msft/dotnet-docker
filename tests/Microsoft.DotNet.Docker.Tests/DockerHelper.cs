@@ -198,5 +198,15 @@ namespace Microsoft.DotNet.Docker.Tests
             return ExecuteWithLogging(
                 $"run --name {name}{cleanupArg}{workdirArg}{userArg}{detachArg} {optionalRunArgs} {image} {command}");
         }
+
+        public string CreateVolume(string name)
+        {
+            return ExecuteWithLogging($"volume create {name}");
+        }
+
+        public string DeleteVolume(string name)
+        {
+            return ExecuteWithLogging($"volume remove {name}");
+        }
     }
 }

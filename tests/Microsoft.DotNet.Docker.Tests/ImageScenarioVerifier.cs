@@ -216,7 +216,7 @@ namespace Microsoft.DotNet.Docker.Tests
             }
         }
 
-        public static async Task VerifyHttpResponseFromContainerAsync(string containerName, DockerHelper dockerHelper, ITestOutputHelper outputHelper, int containerPort = 80, string pathAndQuery = null)
+        public static async Task<HttpResponseMessage> VerifyHttpResponseFromContainerAsync(string containerName, DockerHelper dockerHelper, ITestOutputHelper outputHelper, int containerPort = 80, string pathAndQuery = null, bool disposeResult = true)
         {
             int retries = 30;
 
@@ -232,19 +232,31 @@ namespace Microsoft.DotNet.Docker.Tests
                     retries--;
                     await Task.Delay(TimeSpan.FromSeconds(2));
 
+                    HttpResponseMessage message = null;
                     try
                     {
-                        using (HttpResponseMessage result = await client.GetAsync(url))
+                        message = await client.GetAsync(url);
+                        outputHelper.WriteLine($"HTTP {message.StatusCode}\n{(await message.Content.ReadAsStringAsync())}");
+                        message.EnsureSuccessStatusCode();
+
+                        HttpResponseMessage result = message;
+                        message = null;
+                        // Call should set disposeResult to false if it wants to use the response.
+                        if (disposeResult)
                         {
-                            outputHelper.WriteLine($"HTTP {result.StatusCode}\n{(await result.Content.ReadAsStringAsync())}");
-                            result.EnsureSuccessStatusCode();
+                            result.Dispose();
                         }
 
-                        return;
+                        return result;
                     }
                     catch (Exception ex)
                     {
                         outputHelper.WriteLine($"Request to {url} failed - retrying: {ex}");
+                    }
+                    finally
+                    {
+                        // Could be null if method call fails or if result should not be disposed.
+                        message?.Dispose();
                     }
                 }
             }
