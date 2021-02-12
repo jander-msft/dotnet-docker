@@ -4,9 +4,11 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Xunit;
@@ -17,6 +19,24 @@ namespace Microsoft.DotNet.Docker.Tests
     [Trait("Category", "monitor")]
     public class MonitorImageTests
     {
+        private const int DefaultHttpPort = 80;
+        private const int DefaultArtifactsPort = 52323;
+        private const int DefaultMetricsPort = 52325;
+
+        internal const string EnvVar_DiagnosticPort_ConnectionMode = "DotnetMonitor_DiagnosticPort__ConnectionMode";
+        internal const string EnvVar_DiagnosticPort_EndpointName = "DotnetMonitor_DiagnosticPort__EndpointName";
+        internal const string EnvVar_DiagnosticPorts = "DOTNET_DiagnosticPorts";
+        internal const string EnvVar_Metrics_Enabled = "DotnetMonitor_Metrics__Enabled";
+        internal const string EnvVar_Urls = "DotnetMonitor_Urls";
+
+        private const string UrlPath_Processes = "processes";
+        private const string UrlPath_Metrics = "metrics";
+
+        private const string Directory_Diag = "/diag";
+        private const string Directory_Tmp = "/tmp";
+
+        private const string File_DiagPort = Directory_Diag + "/port";
+
         public MonitorImageTests(ITestOutputHelper outputHelper)
         {
             OutputHelper = outputHelper;
@@ -56,71 +76,59 @@ namespace Microsoft.DotNet.Docker.Tests
         [MemberData(nameof(GetImageData))]
         public Task VerifyMetricsEndpoint(MonitorImageData imageData)
         {
-            const string MonitorDockerArgs = "-p 52325";
-
-            return VerifyAsync(imageData, async containerData =>
-            {
-                DockerHelper.Run(
-                    image: containerData.ImageName,
-                    name: containerData.ContainerName,
-                    detach: true,
-                    optionalRunArgs: MonitorDockerArgs);
-
-                if (!Config.IsHttpVerificationDisabled)
+            return VerifyAsync(
+                imageData,
+                async containerName =>
                 {
-                    // Verify metrics endpoint is accessible
-                    await ImageScenarioVerifier.VerifyHttpResponseFromContainerAsync(
-                        containerData.ContainerName,
-                        DockerHelper,
-                        OutputHelper,
-                        52325,
-                        "metrics");
-                }
-            });
+                    if (!Config.IsHttpVerificationDisabled)
+                    {
+                        // Verify metrics endpoint is accessible
+                        await ImageScenarioVerifier.VerifyHttpResponseFromContainerAsync(
+                            containerName,
+                            DockerHelper,
+                            OutputHelper,
+                            DefaultMetricsPort,
+                            UrlPath_Metrics);
+                    }
+                },
+                builder =>
+                {
+                    builder.ExposePort(DefaultMetricsPort);
+                });
         }
 
         [LinuxImageTheory]
         [MemberData(nameof(GetImageData))]
         public Task VerifyProcessesEndpoint(MonitorImageData imageData)
         {
-            const string MonitorDockerArgs =
-                // Expose the 52323 port
-                "-p 52323 " +
-                // Disable metrics to make sure dotnet-monitor still runs without it.
-                "-e DotnetMonitor_Metrics__Enabled=false " +
-                // The default address is 'http://localhost:52323' which will not bind
-                // in many cases for Docker since using bridge networking is very common.
-                // Use wildcard binding instead.
-                "-e DotnetMonitor_Urls=http://*:52323 ";
-
-            return VerifyAsync(imageData, async containerData =>
-            {
-                DockerHelper.Run(
-                    image: containerData.ImageName,
-                    name: containerData.ContainerName,
-                    detach: true,
-                    optionalRunArgs: MonitorDockerArgs);
-
-                if (!Config.IsHttpVerificationDisabled)
+            return VerifyAsync(
+                imageData,
+                async containerName =>
                 {
-                    // Verify metrics endpoint is accessible
-                    using HttpResponseMessage responseMessage =
-                        await ImageScenarioVerifier.VerifyHttpResponseFromContainerAsync(
-                            containerData.ContainerName,
-                            DockerHelper,
-                            OutputHelper,
-                            52323,
-                            "processes",
-                            disposeResult: false);
+                    if (!Config.IsHttpVerificationDisabled)
+                    {
+                        // Verify metrics endpoint is accessible
+                        using HttpResponseMessage responseMessage =
+                            await ImageScenarioVerifier.VerifyHttpResponseFromContainerAsync(
+                                containerName,
+                                DockerHelper,
+                                OutputHelper,
+                                DefaultArtifactsPort,
+                                UrlPath_Processes,
+                                disposeResult: false);
 
-                    JsonDocument document = JsonDocument.Parse(responseMessage.Content.ReadAsStream());
-                    JsonElement rootElement = document.RootElement;
+                        JsonDocument document = JsonDocument.Parse(responseMessage.Content.ReadAsStream());
+                        JsonElement rootElement = document.RootElement;
 
-                    // Verify returns an empty array (should not detect any processes)
-                    Assert.Equal(JsonValueKind.Array, rootElement.ValueKind);
-                    Assert.Equal(0, rootElement.GetArrayLength());
-                }
-            });
+                        // Verify returns an empty array (should not detect any processes)
+                        Assert.Equal(JsonValueKind.Array, rootElement.ValueKind);
+                        Assert.Equal(0, rootElement.GetArrayLength());
+                    }
+                },
+                builder =>
+                {
+                    builder.HttpUrls(DefaultArtifactsPort).DisableMetrics();
+                });
         }
 
         [LinuxImageTheory]
@@ -133,37 +141,50 @@ namespace Microsoft.DotNet.Docker.Tests
                 imageData: imageData,
                 shareTmpVolume: true,
                 shareDiagPortVolume: false,
-                async (monitorData, sampleData, tmpVolumeName, _) =>
+                async (monitorName, sampleName) =>
                 {
-                    string monitorDockerArgs =
-                        "-p 52323 " +
-                        "-e DotnetMonitor_Urls=http://*:52323 " +
-                        $"-v {tmpVolumeName}:/tmp";
-                    string sampleDockerArgs =
-                        "-p 80 " +
-                        $"-v {tmpVolumeName}:/tmp";
-
-                    DockerHelper.Run(
-                        image: sampleData.ImageName,
-                        name: sampleData.ContainerName,
-                        detach: true,
-                        optionalRunArgs: sampleDockerArgs);
-
-                    DockerHelper.Run(
-                        image: monitorData.ImageName,
-                        name: monitorData.ContainerName,
-                        detach: true,
-                        optionalRunArgs: monitorDockerArgs);
-
                     if (!Config.IsHttpVerificationDisabled)
                     {
                         using HttpResponseMessage responseMessage =
                             await ImageScenarioVerifier.VerifyHttpResponseFromContainerAsync(
-                                monitorData.ContainerName,
+                                monitorName,
                                 DockerHelper,
                                 OutputHelper,
-                                52323,
-                                "processes",
+                                DefaultArtifactsPort,
+                                UrlPath_Processes,
+                                disposeResult: false);
+
+                        JsonDocument document = JsonDocument.Parse(responseMessage.Content.ReadAsStream());
+                        JsonElement rootElement = document.RootElement;
+
+                        // Verify returns an array with one element (the sample container process)
+                        Assert.Equal(JsonValueKind.Array, rootElement.ValueKind);
+                        Assert.Equal(1, rootElement.GetArrayLength());
+                    }
+                });
+        }
+
+        [LinuxImageTheory]
+        [MemberData(nameof(GetImageData))]
+        public Task VerifyListenMode(MonitorImageData imageData)
+        {
+            SampleImageData sampleData = GetCorrespondingSample(imageData);
+
+            return VerifyAsync(
+                imageData: imageData,
+                shareTmpVolume: false,
+                shareDiagPortVolume: true,
+                async (monitorName, sampleName) =>
+                {
+                    if (!Config.IsHttpVerificationDisabled)
+                    {
+                        using HttpResponseMessage responseMessage =
+                            await ImageScenarioVerifier.VerifyHttpResponseFromContainerAsync(
+                                monitorName,
+                                DockerHelper,
+                                OutputHelper,
+                                DefaultArtifactsPort,
+                                UrlPath_Processes,
                                 disposeResult: false);
 
                         JsonDocument document = JsonDocument.Parse(responseMessage.Content.ReadAsStream());
@@ -178,12 +199,26 @@ namespace Microsoft.DotNet.Docker.Tests
 
         private async Task VerifyAsync(
             MonitorImageData imageData,
-            Func<ContainerData, Task> verifyImageAsync)
+            Func<string, Task> verifyImageAsync,
+            Action<DockerRunArgsBuilder> monitorArgsCallback = null)
         {
             ContainerData containerData = ContainerData.FromImageData(DockerHelper, imageData);
             try
             {
-                await verifyImageAsync(containerData);
+                DockerRunArgsBuilder monitorArgsBuilder = DockerRunArgsBuilder.Create();
+
+                if (null != monitorArgsCallback)
+                {
+                    monitorArgsCallback(monitorArgsBuilder);
+                }
+
+                DockerHelper.Run(
+                    image: containerData.ImageName,
+                    name: containerData.ContainerName,
+                    detach: true,
+                    optionalRunArgs: monitorArgsBuilder.Build());
+
+                await verifyImageAsync(containerData.ContainerName);
             }
             finally
             {
@@ -195,27 +230,71 @@ namespace Microsoft.DotNet.Docker.Tests
             MonitorImageData imageData,
             bool shareTmpVolume,
             bool shareDiagPortVolume,
-            Func<ContainerData, ContainerData, string, string, Task> verifyImageAsync)
+            Func<string, string, Task> verifyImageAsync,
+            Action<DockerRunArgsBuilder> monitorArgsCallback = null,
+            Action<DockerRunArgsBuilder> sampleArgsCallback = null)
         {
             ContainerData monitorContainerData = ContainerData.FromImageData(DockerHelper, imageData);
 
             SampleImageData sampleImageData = GetCorrespondingSample(imageData);
             ContainerData sampleContainerData = ContainerData.FromImageData(DockerHelper, sampleImageData);
 
-            string tmpVolumeName = null;
-            if (shareTmpVolume)
-            {
-                tmpVolumeName = DockerHelper.CreateVolume("tmpvol");
-            }
+            DockerRunArgsBuilder monitorArgsBuilder = DockerRunArgsBuilder.Create()
+                .HttpUrls(DefaultArtifactsPort);
+
+            DockerRunArgsBuilder sampleArgsBuilder = DockerRunArgsBuilder.Create()
+                .ExposePort(DefaultHttpPort);
+
             string diagPortVolumeName = null;
-            if (shareDiagPortVolume)
-            {
-                diagPortVolumeName = DockerHelper.CreateVolume("diagportvol");
-            }
+            string tmpVolumeName = null;
 
             try
             {
-                await verifyImageAsync(monitorContainerData, sampleContainerData, tmpVolumeName, diagPortVolumeName);
+                if (shareTmpVolume)
+                {
+                    tmpVolumeName = DockerHelper.CreateVolume(UniqueName("tmpvol"));
+
+                    monitorArgsBuilder.VolumeMount(tmpVolumeName, Directory_Tmp);
+
+                    sampleArgsBuilder.VolumeMount(tmpVolumeName, Directory_Tmp);
+                }
+
+                if (shareDiagPortVolume)
+                {
+                    diagPortVolumeName = DockerHelper.CreateVolume(UniqueName("diagportvol"));
+
+                    monitorArgsBuilder.VolumeMount(diagPortVolumeName, Directory_Diag);
+                    monitorArgsBuilder.DiagPortListen(File_DiagPort);
+
+                    sampleArgsBuilder.VolumeMount(diagPortVolumeName, Directory_Diag);
+                    sampleArgsBuilder.DiagPortSuspend(File_DiagPort);
+                }
+
+                if (null != monitorArgsCallback)
+                {
+                    monitorArgsCallback(monitorArgsBuilder);
+                }
+
+                if (null != sampleArgsCallback)
+                {
+                    sampleArgsCallback(sampleArgsBuilder);
+                }
+
+                DockerHelper.Run(
+                    image: sampleContainerData.ImageName,
+                    name: sampleContainerData.ContainerName,
+                    detach: true,
+                    optionalRunArgs: sampleArgsBuilder.Build());
+
+                DockerHelper.Run(
+                    image: monitorContainerData.ImageName,
+                    name: monitorContainerData.ContainerName,
+                    detach: true,
+                    optionalRunArgs: monitorArgsBuilder.Build());
+
+                await verifyImageAsync(
+                    monitorContainerData.ContainerName,
+                    sampleContainerData.ContainerName);
             }
             finally
             {
@@ -233,6 +312,11 @@ namespace Microsoft.DotNet.Docker.Tests
                     DockerHelper.DeleteVolume(tmpVolumeName);
                 }
             }
+        }
+
+        private static string UniqueName(string name)
+        {
+            return $"{name}-{DateTime.Now.ToFileTime()}";
         }
 
         private static SampleImageData GetCorrespondingSample(MonitorImageData imageData)
@@ -272,6 +356,47 @@ namespace Microsoft.DotNet.Docker.Tests
 
                 return new ContainerData(image, containerName);
             }
+        }
+    }
+
+    internal static class MonitorDockerRunArgsBuilderExtensions
+    {
+        public static DockerRunArgsBuilder DisableMetrics(this DockerRunArgsBuilder builder)
+        {
+            return builder.EnvironmentVariable(
+                MonitorImageTests.EnvVar_Metrics_Enabled,
+                "false");
+        }
+
+        public static DockerRunArgsBuilder HttpUrls(this DockerRunArgsBuilder builder, params int[] ports)
+        {
+            IList<string> urls = new List<string>();
+
+            foreach (int port in ports)
+            {
+                builder.ExposePort(port);
+
+                urls.Add(WildcardHttpUrl(port));
+            }
+
+            return builder.EnvironmentVariable(MonitorImageTests.EnvVar_Urls, string.Join(';', urls));
+        }
+
+        public static DockerRunArgsBuilder DiagPortSuspend(this DockerRunArgsBuilder builder, string endpointName)
+        {
+            return builder.EnvironmentVariable(MonitorImageTests.EnvVar_DiagnosticPorts, $"{endpointName},suspend");
+        }
+
+        public static DockerRunArgsBuilder DiagPortListen(this DockerRunArgsBuilder builder, string endpointName)
+        {
+            return builder
+                .EnvironmentVariable(MonitorImageTests.EnvVar_DiagnosticPort_ConnectionMode, "Listen")
+                .EnvironmentVariable(MonitorImageTests.EnvVar_DiagnosticPort_EndpointName, endpointName);
+        }
+
+        private static string WildcardHttpUrl(int port)
+        {
+            return $"http://*:{port}";
         }
     }
 }

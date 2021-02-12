@@ -4,9 +4,7 @@
 
 using System;
 using System.Diagnostics;
-using System.Text;
 using System.Threading;
-using System.Runtime;
 using Xunit.Abstractions;
 
 namespace Microsoft.DotNet.Docker.Tests
