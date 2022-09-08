@@ -5,11 +5,13 @@ ARG SDK_REPO=mcr.microsoft.com/dotnet/sdk
 FROM $SDK_REPO:6.0.400-alpine3.16-amd64 AS installer
 
 # Install .NET Monitor
-ENV DOTNET_MONITOR_VERSION=6.2.2
-RUN wget -O dotnet-monitor.$DOTNET_MONITOR_VERSION.nupkg https://dotnetbuilds.azureedge.net/public/diagnostics/monitor/6.2.2-servicing.22401.2/dotnet-monitor.$DOTNET_MONITOR_VERSION.nupkg \
-    && dotnetmonitor_sha512='5d5df17e81ed66e644dc7323e89caee10f7eadbf62a28e0443e9fe12df1c5283fce2ebf6bc4dc2e5004c3c9e044101fc131ff293f382f15a32c91a6e159619d7' \
-    && echo "$dotnetmonitor_sha512  dotnet-monitor.$DOTNET_MONITOR_VERSION.nupkg" | sha512sum -c - \
-    && dotnet tool install dotnet-monitor --tool-path /app --add-source / --version $DOTNET_MONITOR_VERSION --framework net6.0 --no-cache \
+# These changes copy a local dotnet-monitor nupkg file into the container
+ENV DOTNET_MONITOR_VERSION=7.0.0-rc.1.22456.3
+#RUN wget -O dotnet-monitor.$DOTNET_MONITOR_VERSION.nupkg https://dotnetbuilds.azureedge.net/public/diagnostics/monitor/6.2.2-servicing.22401.2/dotnet-monitor.$DOTNET_MONITOR_VERSION.nupkg \
+#    && dotnetmonitor_sha512='5d5df17e81ed66e644dc7323e89caee10f7eadbf62a28e0443e9fe12df1c5283fce2ebf6bc4dc2e5004c3c9e044101fc131ff293f382f15a32c91a6e159619d7' \
+#    && echo "$dotnetmonitor_sha512  dotnet-monitor.$DOTNET_MONITOR_VERSION.nupkg" | sha512sum -c - \
+COPY dotnet-monitor.$DOTNET_MONITOR_VERSION.nupkg /
+RUN dotnet tool install dotnet-monitor --tool-path /app --add-source / --version $DOTNET_MONITOR_VERSION --framework net6.0 --no-cache \
     # To reduce image size, remove all non-net6.0 TFMs
     # To do this safely, we need to first find everything that dotnet tool installed named "dotnet-monitor".
     # The /dotnet-monitor/ folder exists under .store which is not a stable constant to rely on. The result is multi stage search:
@@ -25,6 +27,10 @@ RUN wget -O dotnet-monitor.$DOTNET_MONITOR_VERSION.nupkg https://dotnetbuilds.az
     # Allow other users to run the tool
     && chmod 755 /app/dotnet-monitor \
     && rm dotnet-monitor.$DOTNET_MONITOR_VERSION.nupkg
+# These changes patch individual files into the container
+COPY dotnet-monitor.dll /app/.store/dotnet-monitor/$DOTNET_MONITOR_VERSION/dotnet-monitor/$DOTNET_MONITOR_VERSION/tools/net6.0/any/
+COPY Microsoft.Diagnostics.Monitoring.Options.dll /app/.store/dotnet-monitor/$DOTNET_MONITOR_VERSION/dotnet-monitor/$DOTNET_MONITOR_VERSION/tools/net6.0/any/
+COPY Microsoft.Diagnostics.Monitoring.WebApi.dll /app/.store/dotnet-monitor/$DOTNET_MONITOR_VERSION/dotnet-monitor/$DOTNET_MONITOR_VERSION/tools/net6.0/any/
 
 
 # Monitor image
