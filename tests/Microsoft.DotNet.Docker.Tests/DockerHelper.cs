@@ -179,6 +179,8 @@ namespace Microsoft.DotNet.Docker.Tests
         private static string GetDockerOS() => Execute("version -f \"{{ .Server.Os }}\"");
         private static string GetDockerArch() => Execute("version -f \"{{ .Server.Arch }}\"");
 
+        public string GetImageCmd(string image) => ExecuteWithLogging($"inspect -f \"{{{{ .Config.Cmd }}}}\" {image}");
+
         public string GetImageUser(string image) => ExecuteWithLogging($"inspect -f \"{{{{ .Config.User }}}}\" {image}");
 
         public IDictionary<string, string> GetEnvironmentVariables(string image)
@@ -242,6 +244,14 @@ namespace Microsoft.DotNet.Docker.Tests
             string mountedDockerSocketArg = useMountedDockerSocket ? " -v /var/run/docker.sock:/var/run/docker.sock" : string.Empty;
             return ExecuteWithLogging(
                 $"run --name {name}{cleanupArg}{workdirArg}{userArg}{detachArg}{mountedDockerSocketArg} {optionalRunArgs} {image} {command}");
+        }
+
+        /// <summary>
+        /// Creates a file system volume that survives the lifetime of containers.
+        /// </summary>
+        public string CreateVolume(string name)
+        {
+            return ExecuteWithLogging($"volume create {name}");
         }
 
         /// <summary>

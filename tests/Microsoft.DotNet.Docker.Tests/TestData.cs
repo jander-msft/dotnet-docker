@@ -4,6 +4,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text.RegularExpressions;
 using static Microsoft.DotNet.Docker.Tests.ImageVersion;
@@ -145,14 +146,16 @@ namespace Microsoft.DotNet.Docker.Tests
         {
         };
 
+        public static IEnumerable<ProductImageData> GetAllImageData() =>
+            DockerHelper.IsLinuxContainerModeEnabled ? s_linuxTestData : s_windowsTestData;
+
         public static IEnumerable<ProductImageData> GetImageData()
         {
-            return (DockerHelper.IsLinuxContainerModeEnabled ? s_linuxTestData : s_windowsTestData)
+            return GetAllImageData()
                 .FilterImagesByVersion()
                 .FilterImagesByRuntimeVersion()
                 .FilterImagesByArch()
-                .FilterImagesByOs()
-                .Cast<ProductImageData>();
+                .FilterImagesByOs();
         }
 
         public static IEnumerable<SampleImageData> GetAllSampleImageData() =>
@@ -162,8 +165,7 @@ namespace Microsoft.DotNet.Docker.Tests
         {
             return GetAllSampleImageData()
                 .FilterImagesByArch()
-                .FilterImagesByOs()
-                .Cast<SampleImageData>();
+                .FilterImagesByOs();
         }
 
         public static IEnumerable<MonitorImageData> GetMonitorImageData()
@@ -172,11 +174,10 @@ namespace Microsoft.DotNet.Docker.Tests
                 .FilterImagesByVersion()
                 .FilterImagesByRuntimeVersion()
                 .FilterImagesByArch()
-                .FilterImagesByOs()
-                .Cast<MonitorImageData>();
+                .FilterImagesByOs();
         }
 
-        public static IEnumerable<VersionedImageData> FilterImagesByVersion(this IEnumerable<VersionedImageData> imageData)
+        public static IEnumerable<T> FilterImagesByVersion<T>(this IEnumerable<T> imageData) where T : VersionedImageData
         {
             string versionFilterPattern = GetFilterRegexPattern("IMAGE_VERSION");
             return imageData
@@ -184,15 +185,24 @@ namespace Microsoft.DotNet.Docker.Tests
                     || Regex.IsMatch(imageData.VersionString, versionFilterPattern, RegexOptions.IgnoreCase));
         }
 
-        public static IEnumerable<VersionedImageData> FilterImagesByRuntimeVersion(this IEnumerable<VersionedImageData> imageData)
+        public static IEnumerable<T> FilterImagesByRuntimeVersion<T>(this IEnumerable<T> imageData) where T : VersionedImageData
         {
-            string runtimeVersionFilterPattern = GetFilterRegexPattern("RUNTIME_VERSION");
-            return imageData
-                .Where(imageData => runtimeVersionFilterPattern == null
-                    || Regex.IsMatch(imageData.RuntimeVersionString, runtimeVersionFilterPattern, RegexOptions.IgnoreCase));
+            return imageData.FilterImagesByRuntimeVersionPattern(GetFilterRegexPattern("RUNTIME_VERSION"));
         }
 
-        public static IEnumerable<ImageData> FilterImagesByArch(this IEnumerable<ImageData> imageData)
+        public static IEnumerable<T> FilterImagesByRuntimeVersion<T>(this IEnumerable<T> imageData, Version version) where T : VersionedImageData
+        {
+            return imageData.FilterImagesByRuntimeVersionPattern(Config.GetFilterRegexPattern(version.ToString(2)));
+        }
+
+        private static IEnumerable<T> FilterImagesByRuntimeVersionPattern<T>(this IEnumerable<T> imageData, string pattern) where T : VersionedImageData
+        {
+            return imageData
+                .Where(imageData => pattern == null
+                    || Regex.IsMatch(imageData.RuntimeVersionString, pattern, RegexOptions.IgnoreCase));
+        }
+
+        public static IEnumerable<T> FilterImagesByArch<T>(this IEnumerable<T> imageData) where T : ImageData
         {
             string archFilterPattern = GetFilterRegexPattern("IMAGE_ARCH");
             return imageData
@@ -200,20 +210,65 @@ namespace Microsoft.DotNet.Docker.Tests
                     || Regex.IsMatch(Enum.GetName(typeof(Arch), imageData.Arch), archFilterPattern, RegexOptions.IgnoreCase));
         }
 
-        public static IEnumerable<ImageData> FilterImagesByOs(this IEnumerable<ImageData> imageData)
+        public static IEnumerable<T> FilterImagesByOs<T>(this IEnumerable<T> imageData) where T : ImageData
         {
-            IEnumerable<string> osFilterPatterns = Config.OsNames
-                .Select(osName => Config.GetFilterRegexPattern(osName));
+            return imageData.FilterImagesByOsPattern(Config.OsNames.Select(osName => Config.GetFilterRegexPattern(osName)));
+        }
 
+        public static IEnumerable<T> FilterImagesByOs<T>(this IEnumerable<T> imageData, string name) where T : ImageData
+        {
+            return imageData.FilterImagesByOsPattern(new string[] { Config.GetFilterRegexPattern(name) });
+        }
+
+        private static IEnumerable<T> FilterImagesByOsPattern<T>(this IEnumerable<T> imageData, IEnumerable<string> patterns) where T : ImageData
+        {
             return imageData
-                .Where(imageData => !osFilterPatterns.Any()
-                    || osFilterPatterns.Any(osFilterPattern => Regex.IsMatch(imageData.OS, osFilterPattern, RegexOptions.IgnoreCase)));
+                .Where(imageData => !patterns.Any()
+                    || patterns.Any(osFilterPattern => Regex.IsMatch(imageData.OS, osFilterPattern, RegexOptions.IgnoreCase)));
+        }
+
+        public static IEnumerable<ProductImageData> FilterToSdkImages(this IEnumerable<ProductImageData> imageData)
+        {
+            return imageData
+                .Where(imageData => !imageData.IsDistroless)
+                // Filter the image data down to the distinct SDK OSes
+                .Distinct(new SdkImageDataEqualityComparer());
         }
 
         private static string GetFilterRegexPattern(string filterEnvName)
         {
             string filter = Environment.GetEnvironmentVariable(filterEnvName);
             return Config.GetFilterRegexPattern(filter);
+        }
+
+        private class SdkImageDataEqualityComparer : IEqualityComparer<ProductImageData>
+        {
+            public bool Equals([AllowNull] ProductImageData x, [AllowNull] ProductImageData y)
+            {
+                if (x is null && y is null)
+                {
+                    return true;
+                }
+
+                if (x is null && !(y is null))
+                {
+                    return false;
+                }
+
+                if (!(x is null) && y is null)
+                {
+                    return false;
+                }
+
+                return x.VersionString == y.VersionString &&
+                    x.SdkOS == y.SdkOS &&
+                    x.Arch == y.Arch;
+            }
+
+            public int GetHashCode([DisallowNull] ProductImageData obj)
+            {
+                return $"{obj.VersionString}-{obj.SdkOS}-{obj.Arch}".GetHashCode();
+            }
         }
     }
 }

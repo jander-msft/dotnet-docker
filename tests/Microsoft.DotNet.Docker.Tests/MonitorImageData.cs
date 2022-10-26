@@ -18,11 +18,11 @@ namespace Microsoft.DotNet.Docker.Tests
 
         public string OSTag { get; set; }
 
+        public string Tag => GetTagName(VersionString, OSTag);
+
         public string GetImage(DockerHelper dockerHelper)
         {
-            string tag = GetTagName(VersionString, OSTag);
-
-            string imageName = GetImageName(tag, "monitor");
+            string imageName = GetImageName(Tag, "monitor");
 
             PullImageIfNecessary(imageName, dockerHelper);
 

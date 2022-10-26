@@ -33,9 +33,7 @@ namespace Microsoft.DotNet.Docker.Tests
         public static IEnumerable<object[]> GetImageData()
         {
             return TestData.GetImageData()
-                .Where(imageData => !imageData.IsDistroless)
-                // Filter the image data down to the distinct SDK OSes
-                .Distinct(new SdkImageDataEqualityComparer())
+                .FilterToSdkImages()
                 .Select(imageData => new object[] { imageData });
         }
 
@@ -387,36 +385,6 @@ namespace Microsoft.DotNet.Docker.Tests
             );
 
             Assert.Equal(output, bool.TrueString, ignoreCase: true);
-        }
-
-        private class SdkImageDataEqualityComparer : IEqualityComparer<ProductImageData>
-        {
-            public bool Equals([AllowNull] ProductImageData x, [AllowNull] ProductImageData y)
-            {
-                if (x is null && y is null)
-                {
-                    return true;
-                }
-
-                if (x is null && !(y is null))
-                {
-                    return false;
-                }
-
-                if (!(x is null) && y is null)
-                {
-                    return false;
-                }
-
-                return x.VersionString == y.VersionString &&
-                    x.SdkOS == y.SdkOS &&
-                    x.Arch == y.Arch;
-            }
-
-            public int GetHashCode([DisallowNull] ProductImageData obj)
-            {
-                return $"{obj.VersionString}-{obj.SdkOS}-{obj.Arch}".GetHashCode();
-            }
         }
 
         private class SdkContentFileInfo : IComparable<SdkContentFileInfo>

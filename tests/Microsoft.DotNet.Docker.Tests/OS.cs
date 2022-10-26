@@ -42,5 +42,19 @@ namespace Microsoft.DotNet.Docker.Tests
 
         // Helpers
         public const string SlimSuffix = "-slim";
+
+        public static string GetDistrofulOs(string name)
+        {
+            switch (name)
+            {
+                case OS.JammyChiseled:
+                    return OS.Jammy;
+                case OS.Mariner10Distroless:
+                    return OS.Mariner10;
+                case OS.Mariner20Distroless:
+                    return OS.Mariner20;
+            }
+            return name;
+        }
     }
 }

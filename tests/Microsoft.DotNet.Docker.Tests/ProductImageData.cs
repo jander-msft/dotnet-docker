@@ -41,13 +41,13 @@ namespace Microsoft.DotNet.Docker.Tests
             return GetImageName(tag, variantName);
         }
 
-        public string GetImage(DotNetImageType imageType, DockerHelper dockerHelper)
+        public string GetImage(DotNetImageType imageType, DockerHelper dockerHelper, bool allowPull = false)
         {
             string variantName = Enum.GetName(typeof(DotNetImageType), imageType).ToLowerInvariant().Replace('_', '-');
             string tag = GetTagName(imageType);
             string imageName = GetProductImageName(tag, variantName);
 
-            PullImageIfNecessary(imageName, dockerHelper);
+            PullImageIfNecessary(imageName, dockerHelper, allowPull);
 
             return imageName;
         }

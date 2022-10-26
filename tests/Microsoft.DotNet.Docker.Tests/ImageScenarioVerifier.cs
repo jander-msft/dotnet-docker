@@ -8,11 +8,14 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Xunit;
 using Xunit.Abstractions;
 
 namespace Microsoft.DotNet.Docker.Tests
@@ -320,16 +323,30 @@ namespace Microsoft.DotNet.Docker.Tests
             }
         }
 
-        public static async Task<HttpResponseMessage> GetHttpResponseFromContainerAsync(string containerName, DockerHelper dockerHelper, ITestOutputHelper outputHelper, int containerPort, string pathAndQuery = null, Action<HttpResponseMessage> validateCallback = null, AuthenticationHeaderValue authorizationHeader = null)
+        public static async Task<HttpResponseMessage> GetHttpResponseFromContainerAsync(string containerName, DockerHelper dockerHelper, ITestOutputHelper outputHelper, int containerPort, string pathAndQuery = null, Action<HttpResponseMessage> validateCallback = null, AuthenticationHeaderValue authorizationHeader = null, string uriScheme = null)
         {
             int retries = 30;
 
+            uriScheme ??= Uri.UriSchemeHttp;
+
             // Can't use localhost when running inside containers or Windows.
             string url = !Config.IsRunningInContainer && DockerHelper.IsLinuxContainerModeEnabled
-                ? $"http://localhost:{dockerHelper.GetContainerHostPort(containerName, containerPort)}/{pathAndQuery}"
-                : $"http://{dockerHelper.GetContainerAddress(containerName)}:{containerPort}/{pathAndQuery}";
+                ? $"{uriScheme}://localhost:{dockerHelper.GetContainerHostPort(containerName, containerPort)}/{pathAndQuery}"
+                : $"{uriScheme}://{dockerHelper.GetContainerAddress(containerName)}:{containerPort}/{pathAndQuery}";
 
-            using (HttpClient client = new HttpClient())
+            HttpClientHandler handler = new();
+            handler.ServerCertificateCustomValidationCallback =
+                (HttpRequestMessage message, X509Certificate2 certificate, X509Chain chain, SslPolicyErrors errors) =>
+                {
+                    // If HTTPS is used, validate that there are no errors other than the self-signed
+                    // certificate has an untrusted root.
+                    Assert.Equal(SslPolicyErrors.RemoteCertificateChainErrors, errors);
+                    X509ChainStatus status = Assert.Single(chain.ChainStatus);
+                    Assert.Equal(X509ChainStatusFlags.UntrustedRoot, status.Status);
+                    return true;
+                };
+
+            using (HttpClient client = new HttpClient(handler))
             {
                 if (null != authorizationHeader)
                 {
@@ -375,7 +392,7 @@ namespace Microsoft.DotNet.Docker.Tests
             throw new TimeoutException($"Timed out attempting to access the endpoint {url} on container {containerName}");
         }
 
-        public static async Task VerifyHttpResponseFromContainerAsync(string containerName, DockerHelper dockerHelper, ITestOutputHelper outputHelper, int containerPort, string pathAndQuery = null, Action<HttpResponseMessage> validateCallback = null)
+        public static async Task VerifyHttpResponseFromContainerAsync(string containerName, DockerHelper dockerHelper, ITestOutputHelper outputHelper, int containerPort, string pathAndQuery = null, Action<HttpResponseMessage> validateCallback = null, string uriScheme = null)
         {
             (await GetHttpResponseFromContainerAsync(
                 containerName,
@@ -383,7 +400,8 @@ namespace Microsoft.DotNet.Docker.Tests
                 outputHelper,
                 containerPort,
                 pathAndQuery,
-                validateCallback)).Dispose();
+                validateCallback,
+                uriScheme: uriScheme)).Dispose();
         }
     }
 }
