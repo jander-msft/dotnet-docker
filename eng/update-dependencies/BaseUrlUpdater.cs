@@ -1,5 +1,6 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
+//
 
 using System;
 using System.Collections.Generic;
@@ -42,14 +43,21 @@ internal class BaseUrlUpdater : FileRegexUpdater
 
         if (_options.IsInternal)
         {
-            if (!_options.ProductVersions.TryGetValue("sdk", out string? sdkVersion) || string.IsNullOrEmpty(sdkVersion))
+            if (_options.ProductVersions.ContainsKey("monitor"))
             {
-                throw new InvalidOperationException("The sdk version must be set in order to derive the build's blob storage location.");
+                unresolvedBaseUrl = "https://monitortestcli.blob.core.windows.net/dotnet";
             }
+            else
+            {
+                if (!_options.ProductVersions.TryGetValue("sdk", out string? sdkVersion) || string.IsNullOrEmpty(sdkVersion))
+                {
+                    throw new InvalidOperationException("The sdk version must be set in order to derive the build's blob storage location.");
+                }
 
-            sdkVersion = sdkVersion.Replace(".", "-");
+                sdkVersion = sdkVersion.Replace(".", "-");
 
-            unresolvedBaseUrl = $"https://dotnetstage.blob.core.windows.net/{sdkVersion}-internal";
+                unresolvedBaseUrl = $"https://dotnetstage.blob.core.windows.net/{sdkVersion}-internal";
+            }
         }
         else
         {
