@@ -1,10 +1,8 @@
 {{
     set monitorMajorMinor to join(slice(split(PRODUCT_VERSION, "."), 0, 2), ".") ^
     set buildVersion to VARIABLES[cat("monitor|", monitorMajorMinor, "|build-version")] ^
-    set monitorVersionVariable to when(find(buildVersion, '-rtm') >= 0 || find(buildVersion, '-servicing') >= 0, "product-version", "build-version") ^
-    set monitorVersion to VARIABLES[cat("monitor|", monitorMajorMinor, "|", monitorVersionVariable)] ^
-    set versionFolder to when(buildVersion != monitorVersion, buildVersion, '$dotnet_monitor_extension_version') ^
-    set monitorBaseUrl to cat(VARIABLES[cat("monitor|", monitorMajorMinor, "|base-url|", VARIABLES["branch"])], "/diagnostics/monitor/", versionFolder, "/") ^
+    set productVersion to VARIABLES[cat("monitor|", monitorMajorMinor, "|product-version")] ^
+    set monitorBaseUrl to cat(VARIABLES[cat("monitor|", monitorMajorMinor, "|base-url|", VARIABLES["branch"])], "/diagnostics/monitor/$dotnet_monitor_extension_build/") ^
     set files to [
         [
             "filename": "dotnet-monitor-egress-azureblobstorage.tar.gz",
@@ -19,7 +17,8 @@
             "sha-var-name": "dotnet_monitor_extension_sha512"
         ]
     ]
-}}RUN dotnet_monitor_extension_version={{monitorVersion}} \
+}}RUN dotnet_monitor_extension_version={{productVersion}} \
+    dotnet_monitor_extension_build={{buildVersion}} \
     && {{InsertTemplate("../Dockerfile.linux.download-and-install",
         [
             "files": files,
